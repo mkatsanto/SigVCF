@@ -22,10 +22,13 @@ def build_sbs96_channels():
     ]
 
 
-def compute_sbs96(vcf_path, fasta_path):
-    """Return a Counter of channel label -> mutation count for one VCF."""
+def compute_sbs96(vcf_path, fasta_path, report=None):
+    """Return a Counter of channel label -> mutation count for one VCF.
+
+    If ``report`` (a core.SkipReport) is given, it records what was left out and why.
+    """
     counts = Counter(dict.fromkeys(build_sbs96_channels(), 0))
-    for event in iter_sbs96_events(vcf_path, fasta_path):
+    for event in iter_sbs96_events(vcf_path, fasta_path, report):
         if event.channel in counts:
             counts[event.channel] += 1
     return counts

@@ -49,6 +49,14 @@ reindex the output rows to match a specific reference-signature file.
 - Substitutions are folded onto the pyrimidine (C/T) strand.
 - A record is skipped if its contig is not in the FASTA, it sits within
   1 bp of a contig start/end, or its REF disagrees with the FASTA.
+- For each VCF, a line on stderr gives the SNVs counted and the mutations
+  left out, per reason (`not_snv`, `next_to_another_snv`,
+  `contig_not_in_genome`, `at_contig_edge`, `ref_mismatch`). The last
+  three get an extra WARNING line: many of them usually mean the FASTA is
+  a different genome build or uses other contig names (`chr1` vs `1`).
+- A VCF with more than one sample column stops the run: SigVCF does not
+  read genotypes, so the samples' mutations would be mixed into one
+  column. Split it into one VCF per sample first.
 
 ## Credits and references
 

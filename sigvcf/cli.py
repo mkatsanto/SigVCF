@@ -3,9 +3,11 @@
 import argparse
 import os
 import re
+import sys
 
 import pandas as pd
 
+from .core import SKIP_REASONS, SigVCFInputError, SkipReport
 from .sbs96 import build_sbs96_channels, compute_sbs96
 from .io_formats import load_matrix_order, save_in_format
 
@@ -43,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _report_line(sample_name, report):
+    """One log line: how many SNVs were counted and how many mutations were left out, per reason."""
+    skipped = ", ".join(f"{reason}={report.skipped[reason]}" for reason in SKIP_REASONS)
+    return f"{sample_name}: counted={report.counted}, skipped: {skipped}"
+
+
 def _resolve_sample_names(vcf_paths, sample_names):
     if sample_names is None:
         return [_sample_name_from_path(p) for p in vcf_paths]
@@ -61,8 +69,22 @@ def main(argv=None):
 
     columns = {}
     for vcf_path, sample_name in zip(args.vcf, sample_names):
-        counts = compute_sbs96(vcf_path, args.fasta)
+        report = SkipReport()
+        try:
+            counts = compute_sbs96(vcf_path, args.fasta, report)
+        except SigVCFInputError as error:
+            sys.exit(f"sigvcf: error: {error}")
         columns[sample_name] = [counts[c] for c in channels]
+
+        # written to stderr, so it ends up in the workflow's log for this step
+        print(_report_line(sample_name, report), file=sys.stderr)
+        if report.genome_mismatches():
+            line = (f"WARNING: {sample_name}: {report.genome_mismatches()} SNVs "
+                    f"({report.genome_mismatch_fraction():.2%}) do not fit {args.fasta} and were not counted")
+            if report.missing_contigs:
+                top = ", ".join(f"{c} ({n})" for c, n in report.missing_contigs.most_common(5))
+                line += f"; contigs not in the FASTA: {top}"
+            print(line, file=sys.stderr)
 
     matrix = pd.DataFrame(columns, index=pd.Index(channels, name="Type"))
 
