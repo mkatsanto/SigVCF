@@ -1,0 +1,93 @@
+Metadata-Version: 2.4
+Name: sigvcf
+Version: 0.1.0
+Summary: Mutation-count matrix extraction (SBS96 / SBS192 / DBS78) directly from VCFs
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: pandas
+Requires-Dist: pysam
+Requires-Dist: intervaltree
+
+# SigVCF
+
+Extracts a mutation-count matrix directly from VCFs -- no upstream
+matrix-generation step needed. Three matrix types, one module each,
+loaded only when requested:
+
+| `--matrix-type` | Inputs                          | Channels |
+|------------------|----------------------------------|----------|
+| `sbs96`          | `.vcf` + `.fasta`(`.fai`)        | 96       |
+| `sbs192`         | `.vcf` + `.fasta` + `.gtf[.gz]`  | 192      |
+| `dbs78`          | `.vcf` + `.fasta`                | 78       |
+
+Everything streams: SNVs are read one VCF record at a time via
+`pysam.VariantFile`, trinucleotide context is pulled from an indexed
+FASTA via `pysam.FastaFile` (no genome held in RAM), and a GTF (only
+needed for `sbs192`) is parsed once into an `intervaltree` index. No
+network access and no bundled reference data -- built to run inside
+an offline Apptainer/Singularity container on an air-gapped cluster.
+
+## Install
+
+```
+pip install -e .
+```
+
+## Usage
+
+```
+sigvcf --matrix-type sbs96 \
+    --vcf sample1.vcf sample2.vcf.gz \
+    --fasta /ref/GRCh38.fa \
+    --output-dir out/ \
+    --output-prefix counts_myrun \
+    --output-formats tab_with_index sigfit
+```
+
+```
+sigvcf --matrix-type sbs192 \
+    --vcf sample1.vcf \
+    --fasta /ref/GRCh38.fa \
+    --gtf /ref/gencode.v44.gtf.gz \
+    --output-dir out/
+```
+
+```
+sigvcf --matrix-type dbs78 \
+    --vcf sample1.vcf \
+    --fasta /ref/GRCh38.fa \
+    --output-dir out/
+```
+
+Output is written as `{output-prefix}_{format}.dat` per requested
+`--output-formats` entry: a tab- or comma-separated table, mutation
+channels as rows (index name `Type`) and one column per `--vcf`
+(named from `--sample-names` or each file's stem). This is the same
+shape [SigFitBench](../SigFitBench)'s fitting-tool rules already
+consume, so a matrix produced here drops straight into that pipeline
+(see `SigFitBench/workflow/rules/vcf_input.smk`).
+
+Pass `--matrix-order some_order.dat` (one channel label per line) to
+reindex the output rows to match a specific reference-signature file's
+row order before fitting.
+
+## Notes on DBS78 canonicalization
+
+The 78 channels are derived programmatically, not from a hardcoded
+COSMIC table: 10 of the 16 possible reference dinucleotides are
+canonical, the rest fold onto them via reverse-complementing the
+(ref, alt) pair together, and the 4 reference dinucleotides that are
+their own reverse complement get an extra alt-level fold. This
+produces exactly 78 self-consistent channels (verified in
+`sigvcf/dbs78.py`'s docstring derivation) but its exact channel
+*labels* have not been cross-checked byte-for-byte against
+SigProfilerMatrixGenerator's reference list -- do that before treating
+counts as COSMIC-exact for downstream comparison.
+
+## Notes on SBS192 transcribed/untranscribed classification
+
+`sigvcf/transcript_strand.py` implements a documented simplification
+of the T/U/I convention (loci overlapped by transcripts on both
+strands are reported as intergenic rather than guessed). Validate
+against a reference tool if exact COSMIC parity matters for your use
+case.
